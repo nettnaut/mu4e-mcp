@@ -6,10 +6,21 @@
 """Minimal MCP server exposing mu email search to Claude."""
 
 import json
+import shlex
 import subprocess
 import sys
 import email
 import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Separate mu database so we don't conflict with mu4e's mu server write lock.
+MU_HOME = Path(os.environ.get("MU_MCP_HOME", Path.home() / ".cache" / "mu-mcp"))
+MU_MAILDIR = os.environ.get("MU_MCP_MAILDIR", str(Path.home() / ".maildir"))
+MU_ADDRESSES = os.environ.get(
+    "MU_MCP_ADDRESSES",
+    "kjetil@nettnaut.com,kjetil.jakobsen@shortcut.io,nettnaut@gmail.com",
+)
 
 
 def send(obj):
@@ -17,10 +28,46 @@ def send(obj):
     sys.stdout.flush()
 
 
-def mu_find(query, max_results=20, include_body=False):
-    cmd = ["mu", "find", "--format", "json", f"--maxnum={max_results}"] + query.split()
+def lisp_time_to_iso(t):
+    """Convert mu's Lisp time [HIGH, LOW, USEC] to ISO 8601 string."""
+    if isinstance(t, list) and len(t) >= 2:
+        ts = t[0] * 65536 + t[1]
+        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    return None
+
+
+def _ensure_mu_db():
+    """Initialise the MCP-private mu database if it doesn't exist yet."""
+    db_path = MU_HOME / "xapian"
+    if not db_path.exists():
+        addr_args = []
+        for a in MU_ADDRESSES.split(","):
+            a = a.strip()
+            if a:
+                addr_args += ["--my-address", a]
+        subprocess.run(
+            ["mu", "init", f"--muhome={MU_HOME}", f"--maildir={MU_MAILDIR}"]
+            + addr_args,
+            capture_output=True, text=True,
+        )
+
+
+def _reindex():
+    """Fast incremental re-index (checks dir timestamps only)."""
+    _ensure_mu_db()
+    subprocess.run(
+        ["mu", "index", "--lazy-check", f"--muhome={MU_HOME}"],
+        capture_output=True, text=True,
+    )
+
+
+def mu_find(query, max_results=20):
+    _reindex()
+    cmd = ["mu", "find", f"--muhome={MU_HOME}",
+           "--format", "json", f"--maxnum={max_results}",
+           "--sortfield=date", "--reverse"] + shlex.split(query)
     result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode not in (0, 4):  # 4 = no results found
+    if result.returncode not in (0, 2, 4):  # 2 or 4 = no results found
         raise RuntimeError(result.stderr.strip())
     if not result.stdout.strip():
         return []
@@ -108,7 +155,7 @@ def handle(request):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "mu4e-mcp", "version": "1.0.0"},
+                "serverInfo": {"name": "mu4e-mcp", "version": "1.1.0"},
             },
         })
 
@@ -135,7 +182,7 @@ def handle(request):
                         "subject": subject,
                         "from": m.get(":from"),
                         "to": m.get(":to"),
-                        "date": m.get(":date-unix"),
+                        "date": lisp_time_to_iso(m.get(":date")),
                         "maildir": m.get(":maildir"),
                         "flags": m.get(":flags"),
                         "message_id": message_id,
