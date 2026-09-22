@@ -53,10 +53,10 @@ def _ensure_mu_db():
 
 
 def _reindex():
-    """Fast incremental re-index (checks dir timestamps only)."""
+    """Full re-index to pick up new/changed/deleted mail."""
     _ensure_mu_db()
     subprocess.run(
-        ["mu", "index", "--lazy-check", f"--muhome={MU_HOME}"],
+        ["mu", "index", f"--muhome={MU_HOME}"],
         capture_output=True, text=True,
     )
 
