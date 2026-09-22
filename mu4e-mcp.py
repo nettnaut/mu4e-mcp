@@ -71,7 +71,10 @@ def mu_find(query, max_results=20):
         raise RuntimeError(result.stderr.strip())
     if not result.stdout.strip():
         return []
-    return json.loads(result.stdout)
+    # mu emits some header values (e.g. folded/multi-line Subjects) with raw
+    # control characters, which strict JSON rejects. strict=False permits
+    # control chars inside strings so one bad message can't kill the whole result.
+    return json.loads(result.stdout, strict=False)
 
 
 def mu_view(path):
