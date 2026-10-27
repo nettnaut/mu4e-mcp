@@ -194,9 +194,11 @@ class HTTP(unittest.TestCase):
 
     def setUp(self):
         self._token, self._origins = mcp.HTTP_TOKEN, mcp.ALLOWED_ORIGINS
+        self._token_header = mcp.HTTP_TOKEN_HEADER
 
     def tearDown(self):
         mcp.HTTP_TOKEN, mcp.ALLOWED_ORIGINS = self._token, self._origins
+        mcp.HTTP_TOKEN_HEADER = self._token_header
 
     def request(self, method="POST", body=None, path="/mcp", headers=None, raw=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
@@ -257,6 +259,21 @@ class HTTP(unittest.TestCase):
         self.assertEqual(self.request(body=rpc("tools/list"))[0].status, 401)
         ok, _ = self.request(body=rpc("tools/list"),
                              headers={"Authorization": "Bearer t0ken-for-tests"})
+        self.assertEqual(ok.status, 200)
+
+    def test_token_in_custom_header(self):
+        mcp.HTTP_TOKEN, mcp.HTTP_TOKEN_HEADER = "t0ken-for-tests", "X-Upstream-Key"
+        resp, _ = self.request(body=rpc("tools/list"))
+        self.assertEqual(resp.status, 403)
+        self.assertIsNone(resp.getheader("WWW-Authenticate"))
+        self.assertEqual(self.request(body=rpc("tools/list"),
+                                      headers={"X-Upstream-Key": "wrong"})[0].status, 403)
+        # The Bearer form no longer counts; the proxy's own Authorization is ignored.
+        self.assertEqual(self.request(body=rpc("tools/list"),
+                                      headers={"Authorization": "Bearer t0ken-for-tests"})[0].status, 403)
+        ok, _ = self.request(body=rpc("tools/list"),
+                             headers={"X-Upstream-Key": "t0ken-for-tests",
+                                      "Authorization": "Bearer proxy-owned"})
         self.assertEqual(ok.status, 200)
 
 
