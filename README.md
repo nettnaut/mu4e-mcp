@@ -98,6 +98,11 @@ python3 mu4e-mcp.py --http 127.0.0.1:8766
   front. The server warns on a non-loopback bind.
 - **`MU_MCP_HTTP_TOKEN`** — optional: require `Authorization: Bearer <token>`
   on every request, as a second lock behind the proxy.
+- **`MU_MCP_HTTP_TOKEN_HEADER`** — optional: carry the token in this header
+  instead (e.g. `X-Upstream-Key: <token>`, raw value, no `Bearer`). For proxies
+  that own `Authorization` themselves, such as Pomerium in MCP mode. A missing or
+  wrong value gets `403` (not `401`, which would make an OAuth proxy try
+  upstream OAuth).
 - **`MU_MCP_ALLOWED_ORIGINS`** — comma-separated; requests carrying any other
   `Origin` header get `403` (DNS-rebinding guard). Requests without `Origin`
   (server-to-server) are allowed.
